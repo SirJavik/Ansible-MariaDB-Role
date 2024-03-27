@@ -1,0 +1,95 @@
+---
+#########################################
+#            _             _ _          #
+#           | |           (_) |         #
+#           | | __ ___   ___| | __      #
+#       _   | |/ _` \ \ / / | |/ /      #
+#      | |__| | (_| |\ V /| |   <       #
+#       \____/ \__,_| \_/ |_|_|\_\      #
+#                                       #
+#########################################
+
+- name: Copy 50-server.cnf to /etc/mysql/mariadb.conf.d/
+  ansible.builtin.template:
+    src: 50-server.cnf.j2
+    dest: /etc/mysql/mariadb.conf.d/50-server.cnf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart mariadb
+
+- name: Copy 60-galera.cnf to /etc/mysql/mariadb.conf.d/
+  ansible.builtin.template:
+    src: 60-galera.cnf.j2
+    dest: /etc/mysql/mariadb.conf.d/60-galera.cnf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart mariadb
+
+- name: Create mariadb dropin directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/mariadb.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Ensure 10-files-limit.conf mariadb dropin is present
+  ansible.builtin.template:
+    src: systemd/10-files-limit.conf.j2
+    dest: /etc/systemd/system/mariadb.service.d/10-files-limit.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: 
+    - restart mariadb
+  register: files_limit
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: files_limit.changed
+
+- name: Collect facts about system services
+  ansible.builtin.service_facts:
+  register: services_state
+
+- name: Check if galera-installed flag file exists
+  ansible.builtin.stat:
+    path: /data/db/.galera-installed
+  register: galera_installed
+
+- name: Start first galera node
+  ansible.builtin.shell: "galera_new_cluster"
+  args:
+    chdir: /data/db
+  when:
+    - inventory_hostname == groups['galeraCluster'][0]
+    - services_state.ansible_facts.services['mariadb.service'].state == 'stopped'
+    - galera_installed.stat.exists == false
+
+
+- name: Restart MariaDB on other nodes
+  ansible.builtin.systemd:
+    name: mariadb
+    state: restarted
+  when:
+    - inventory_hostname != groups['galeraCluster'][0]
+    - galera_installed.stat.exists == false
+
+- name: Ensure mariadb is running on all nodes
+  ansible.builtin.systemd:
+    name: mariadb
+    state: started
+  when: 
+    - galera_installed.stat.exists == true
+
+- name: Create flag file for galera installed
+  ansible.builtin.file:
+    path: /data/db/.galera-installed
+    state: touch
+    owner: mysql
+    group: mysql
+    mode: '0644'
+  when: galera_installed.stat.exists == false

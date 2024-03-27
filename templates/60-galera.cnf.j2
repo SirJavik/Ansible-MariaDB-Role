@@ -1,0 +1,14 @@
+####################################
+##### MANAGED BY ANSIBLE ({{ ansible_role_name }})
+####################################
+
+[galera]
+wsrep_provider            = /usr/lib/galera/libgalera_smm.so
+wsrep_on                  = ON                                   
+wsrep_cluster_name        = "{{ mariadb_galera_cluster_name }}"            
+wsrep_cluster_address     = gcomm://{{ galera_cluster_nodes | join(',') }} 
+wsrep_node_address        = {{ hostvars[inventory_hostname]['ansible_' + mariadb_galera_cluster_interface]['ipv4']['address'] }}
+wsrep_node_name           = {{ hostvars[inventory_hostname]['ansible_fqdn'] }}
+binlog_format             = row
+default_storage_engine    = InnoDB
+innodb_autoinc_lock_mode  = 2

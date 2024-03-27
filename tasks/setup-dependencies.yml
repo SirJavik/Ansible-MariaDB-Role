@@ -1,0 +1,56 @@
+---
+#########################################
+#            _             _ _          #
+#           | |           (_) |         #
+#           | | __ ___   ___| | __      #
+#       _   | |/ _` \ \ / / | |/ /      #
+#      | |__| | (_| |\ V /| |   <       #
+#       \____/ \__,_| \_/ |_|_|\_\      #
+#                                       #
+#########################################
+
+- name: Gather hcloud volume with matching name for server
+  hetzner.hcloud.volume_info:
+    api_token: "{{ vault_hcloud_token }}"
+    name: "{{ mariadb_hcloud_volume_name }}"
+  register: volume
+
+- name: Create a ext4 filesystem on {{ volume.hcloud_volume_info[0].linux_device }}
+  community.general.filesystem:
+    fstype: ext4
+    dev: "{{ volume.hcloud_volume_info[0].linux_device }}"
+  register: filesystem
+
+- name: Get UUID for hcloud volume
+  ansible.builtin.command: lsblk {{ volume.hcloud_volume_info[0].linux_device }} -no UUID
+  register: volume_uuid
+  when: filesystem.changed
+
+
+- name: Ensure mount point "{{ mariadb_hcloud_volume_mountpoint }}" is present
+  ansible.builtin.file:
+    path: "{{ mariadb_hcloud_volume_mountpoint }}"
+    state: directory
+    mode: '0755'
+
+- name: Mount {{ volume.hcloud_volume_info[0].name }} to {{ mariadb_hcloud_volume_mountpoint }} and add to /etc/fstab
+  ansible.posix.mount:
+    path: "{{ mariadb_hcloud_volume_mountpoint }}"
+    src: UUID={{ volume_uuid.stdout_lines[0] }}
+    state: mounted
+    fstype: ext4
+    opts: defaults,nofail
+  when: filesystem.changed
+
+- name: Ensure link from /var/lib/mysql to {{ mariadb_hcloud_volume_mountpoint }} is present
+  ansible.builtin.file:
+    src: "{{ mariadb_hcloud_volume_mountpoint }}"
+    dest: /var/lib/mysql
+    state: link
+    force: yes
+
+- name: Remove lost+found directory from {{ mariadb_hcloud_volume_mountpoint }}
+  ansible.builtin.file:
+    path: "{{ mariadb_hcloud_volume_mountpoint }}/lost+found"
+    state: absent
+    force: yes
