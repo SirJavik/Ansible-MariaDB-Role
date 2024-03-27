@@ -20,3 +20,11 @@
 
 - name: Import tasks to configure MariaDB
   ansible.builtin.import_tasks: configure-mariadb.yml
+
+- name: Import tasks to create database
+  ansible.builtin.include_tasks: create-database.yml
+  loop: "{{ mariadb_databases }}"
+
+- name: Import tasks to delete database
+  ansible.builtin.include_tasks: delete-database.yml
+  loop: "{{ mariadb_databases_absent }}"
